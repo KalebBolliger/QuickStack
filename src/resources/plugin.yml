@@ -1,0 +1,9 @@
+main: net.tytonidae.quickstack.Main
+name: QuickStack
+version: 2.0
+author: tytonidae
+description: Adds functionality for automatic item collapse from inventory into nearby chests
+commands: 
+  stack:
+    description: Combine all possible items from inventory with those in nearby chests
+    usage: /stack
