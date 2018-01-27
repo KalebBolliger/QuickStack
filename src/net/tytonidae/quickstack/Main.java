@@ -3,10 +3,12 @@ package net.tytonidae.quickstack;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 
+import java.util.List;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.ListIterator;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -41,9 +43,10 @@ public class Main extends JavaPlugin
 		{
 			Player client = (Player) sender;
 			Chest[] chests = getChests(client.getLocation());
-			StorageInfo results = storeItems(client.getInventory(), chests);
-			sender.sendMessage("Stacked " + results.ITEMS_STORED + " items across " + results.CHESTS_UNIQUE + " chests.");
-			
+			StorageInfo results = storeItems(client.getInventory(), getItemLookup(chests));
+			sender.sendMessage(
+					"Stacked " + results.ITEMS_STORED + " items across " + results.CHESTS_UNIQUE + " chests.");
+
 			return true;
 		}
 
@@ -54,7 +57,7 @@ public class Main extends JavaPlugin
 	{
 		ArrayList<Chest> locs = new ArrayList<Chest>(); // track nearby chests
 		Block searchAnchor = pos.getBlock();
-		
+
 		// iterate in cube around player to find chests
 		for (int x = -CUBE_HALF_SIDE; x < CUBE_HALF_SIDE; x++)
 		{
@@ -74,81 +77,120 @@ public class Main extends JavaPlugin
 		return locs.toArray(new Chest[locs.size()]);
 	}
 
-	private StorageInfo storeItems(PlayerInventory inv, Chest[] chests)
+	private StorageInfo storeItems(PlayerInventory inv, Map<ItemStackKey, List<ChestHandler>> lookup)
 	{
-		if (chests.length == 0) // do not attempt storage if no chests around
+		if (lookup.size() == 0) // do not attempt storage if no chests around
 		{
 			return new StorageInfo(0, 0);
 		}
 		
-		int total = 0;
-		Set<Integer> uniqueChests = new HashSet<Integer>(chests.length); // track chests receiving items
-
-		for (ItemStack currentItem : inv) // attempt to store each item in passed inventory
+		for (ItemStack currentItem : inv)
 		{
-			int chestIndex = 0;
-
-			// check each chest for valid storage
-			while ((currentItem != null) && (currentItem.getAmount() > 0) && (chestIndex < chests.length))
+			if (currentItem != null)
 			{
-				Inventory currentInv = chests[chestIndex].getBlockInventory();
-				int stored = storeItem(currentItem, currentInv);
-				total += stored;
+				ItemStackKey currentKey = new ItemStackKey(currentItem);
+				List<ChestHandler> matchingChestList = lookup.get(currentKey);
 				
-				if  (stored > 0)
+				if (matchingChestList != null)
 				{
-					uniqueChests.add(chestIndex);
+					ListIterator<ChestHandler> matchingChests = matchingChestList.listIterator();	
+					
+					while ((currentItem.getAmount() > 0) && (matchingChests.hasNext()))
+					{
+						ChestHandler currentHandler = matchingChests.next();
+						Inventory chestInv = currentHandler.getChest().getBlockInventory();
+						Integer[] stackIndexes = currentHandler.getIndexes();
+						int index = 0;
+	
+						while ((currentItem.getAmount() > 0) && (index < stackIndexes.length))
+						{
+							ItemStack destItem = chestInv.getItem(stackIndexes[index]);
+							int storageSpace = destItem.getMaxStackSize() - destItem.getAmount();
+	
+							// if another plugin (or bug) created a stack greater than normal, do not touch it
+							if (storageSpace < 0)
+							{
+								index++;
+								continue;
+							}
+							else if (storageSpace >= currentItem.getAmount())
+							{
+								destItem.setAmount(destItem.getAmount() + currentItem.getAmount());
+								//counter += item.getAmount();
+								currentItem.setAmount(0); // appears to successfully remove item
+							}
+							else
+							{
+								destItem.setAmount(destItem.getMaxStackSize());
+								//counter += storageSpace;
+								currentItem.setAmount(currentItem.getAmount() - storageSpace);
+							
+								
+							}
+							
+							index++;
+						}
+					}
 				}
-				
-				chestIndex++;
 			}
 		}
-		return new StorageInfo(total, uniqueChests.size());
-	}
-	
-	private int storeItem(ItemStack item, Inventory destInv)
-	{
-		int counter = 0;
 		
-		Material currentItemMat = item.getType();
-		int invPos = destInv.first(item.getType()); // material used to ignore stack amount
+		return new StorageInfo(555, 555); //uniqueChests.size());
+	}
 
-		if (invPos != -1)
+	private Map<ItemStackKey, List<ChestHandler>> getItemLookup(Chest[] chests)
+	{
+		Map<ItemStackKey, List<ChestHandler>> lookup = new HashMap<ItemStackKey, List<ChestHandler>>();
+		
+		// build map to lookup chests containing desired item
+		for (Chest currentChest : chests)
 		{
-			ListIterator<ItemStack> it = destInv.iterator(invPos);
-			
-			// attempt to combine with existing stored stacks until none left
-			while ((it.hasNext()) && (item.getAmount() > 0))
+			ListIterator<ItemStack> it = currentChest.getBlockInventory().iterator();
+
+			while (it.hasNext())
 			{
-				ItemStack destItem = it.next();
-				
-				if ((destItem != null) && (destItem.getType() == currentItemMat))
+				ItemStack currentItem = it.next();
+
+				if (currentItem != null)
 				{
-					int storageSpace = destItem.getMaxStackSize() - destItem.getAmount();
-					
-					// if another plugin (or bug) created a stack greater than normal, do not touch it
-					if (storageSpace < 0)
+					ItemStackKey currentKey = new ItemStackKey(currentItem);
+					List<ChestHandler> results = lookup.get(currentKey); // list of chests containing this item
+
+					if (results == null) // first time seeing this stack
 					{
-						continue;
-					}
-					else if (storageSpace >= item.getAmount())
-					{
-						destItem.setAmount(destItem.getAmount() + item.getAmount());
-						counter += item.getAmount();
-						item.setAmount(0); // appears to successfully remove item
+						results = new ArrayList<ChestHandler>();
+						lookup.put(currentKey, results);
+						results.add(new ChestHandler(currentChest, it.nextIndex() - 1));
 					}
 					else
 					{
-						destItem.setAmount(destItem.getMaxStackSize());
-						counter += storageSpace;
-						item.setAmount(item.getAmount() - storageSpace);
+						// store item index in corresponding ChestHandler if it already exists
+						boolean stored = false;
+						
+						for (ChestHandler handler : results)
+						{
+							if (handler.getChest() == currentChest)
+							{
+								handler.addIndex(it.nextIndex() - 1);
+								stored = true;
+								break;
+							}
+						}
+						
+						if (!stored) // otherwise, store in new ChestHandler
+						{
+							results.add(new ChestHandler(currentChest, it.nextIndex() - 1));
+						}
 					}
+
+
 				}
 			}
 		}
-		
-		return counter;
+
+		return lookup;
 	}
+
 }
 
 // class to hold counts for items moved and chests changed
@@ -156,10 +198,70 @@ class StorageInfo
 {
 	public final int CHESTS_UNIQUE;
 	public final int ITEMS_STORED;
-	
-	StorageInfo(int itemsStored, int uniqueChests)
+
+	public StorageInfo(int itemsStored, int uniqueChests)
 	{
 		CHESTS_UNIQUE = uniqueChests;
 		ITEMS_STORED = itemsStored;
+	}
+}
+
+class ItemStackKey
+{
+	private final ItemStack _item;
+	private final int _hash;
+
+	public ItemStackKey(ItemStack item)
+	{
+		_item = item;
+		_hash = Objects.hash(_item.getType(), _item.getMaxStackSize());
+	}
+
+	public int hashCode()
+	{
+		return _hash;
+	}
+
+	public boolean equals(Object obj)
+	{
+		if (!(obj instanceof ItemStackKey))
+		{
+			return false;
+		}
+		else
+		{
+			ItemStackKey toCompare = (ItemStackKey) obj;
+			return (_hash == toCompare.hashCode());
+		}
+	}
+}
+
+// class to track a chest and indexes of desired items
+class ChestHandler
+{
+	private final Chest _container;
+	private final List<Integer> _indexes;
+
+	public ChestHandler(Chest container, int index)
+	{
+		_container = container;
+		_indexes = new ArrayList<Integer>();
+		
+		this.addIndex(index);
+	}
+
+	public void addIndex(int index)
+	{
+		_indexes.add(index);
+	}
+
+	public Chest getChest()
+	{
+		return _container;
+	}
+
+	public Integer[] getIndexes()
+	{
+		return _indexes.toArray(new Integer[_indexes.size()]);
 	}
 }
