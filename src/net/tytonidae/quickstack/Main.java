@@ -6,9 +6,11 @@ import org.bukkit.command.CommandSender;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -84,6 +86,9 @@ public class Main extends JavaPlugin
 			return new StorageInfo(0, 0);
 		}
 		
+		int itemCounter = 0;
+		Set<Chest> uniqueChests = new HashSet<Chest>();
+		
 		for (ItemStack currentItem : inv)
 		{
 			if (currentItem != null)
@@ -97,45 +102,48 @@ public class Main extends JavaPlugin
 					
 					while ((currentItem.getAmount() > 0) && (matchingChests.hasNext()))
 					{
-						ChestHandler currentHandler = matchingChests.next();
+						ChestHandler currentHandler = matchingChests.next();						
 						Inventory chestInv = currentHandler.getChest().getBlockInventory();
-						Integer[] stackIndexes = currentHandler.getIndexes();
-						int index = 0;
+						
+						Integer[] stackIndexes = currentHandler.getIndexes(); //indexes of matching items in chest
+						int currentIndex = 0;
 	
-						while ((currentItem.getAmount() > 0) && (index < stackIndexes.length))
+						while ((currentItem.getAmount() > 0) && (currentIndex < stackIndexes.length))
 						{
-							ItemStack destItem = chestInv.getItem(stackIndexes[index]);
+							ItemStack destItem = chestInv.getItem(stackIndexes[currentIndex]);
 							int storageSpace = destItem.getMaxStackSize() - destItem.getAmount();
 	
 							// if another plugin (or bug) created a stack greater than normal, do not touch it
 							if (storageSpace < 0)
 							{
-								index++;
+								currentIndex++;
 								continue;
 							}
 							else if (storageSpace >= currentItem.getAmount())
 							{
 								destItem.setAmount(destItem.getAmount() + currentItem.getAmount());
-								//counter += item.getAmount();
+								itemCounter += currentItem.getAmount();
 								currentItem.setAmount(0); // appears to successfully remove item
+								
+								uniqueChests.add(currentHandler.getChest());
 							}
-							else
+							else if (storageSpace > 0)
 							{
 								destItem.setAmount(destItem.getMaxStackSize());
-								//counter += storageSpace;
+								itemCounter += storageSpace;
 								currentItem.setAmount(currentItem.getAmount() - storageSpace);
 							
-								
+								uniqueChests.add(currentHandler.getChest());
 							}
 							
-							index++;
+							currentIndex++;
 						}
 					}
 				}
 			}
 		}
 		
-		return new StorageInfo(555, 555); //uniqueChests.size());
+		return new StorageInfo(itemCounter, uniqueChests.size()); 
 	}
 
 	private Map<ItemStackKey, List<ChestHandler>> getItemLookup(Chest[] chests)
