@@ -1,6 +1,7 @@
 package net.tytonidae.quickstack;
 
 import java.util.List;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,14 +26,18 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class Main extends JavaPlugin
 {
-	final int SEARCH_DISTANCE = 5;
-	final int SEARCH_DISTANCE_SQUARED = SEARCH_DISTANCE * SEARCH_DISTANCE;
 	final int CHUNK_LENGTH = 16;
+	
+	int searchRadius;
+	int searchRadiusSquared;
 
 	@Override
 	public void onEnable()
 	{
-
+		this.checkConfig();
+		
+		searchRadius = this.getConfig().getInt("radius");
+		searchRadiusSquared = searchRadius * searchRadius;
 	}
 
 	@Override
@@ -54,10 +59,59 @@ public class Main extends JavaPlugin
 
 			return true;
 		}
+		else if (command.getName().equalsIgnoreCase("qsradius"))
+		{
+			if (args.length != 1)
+			{
+				return false;
+			}
+			
+			int radius = 0;
+			
+			try
+			{
+				radius = Integer.parseInt(args[0]);
+			}
+			catch (NumberFormatException error)
+			{
+				return false;
+			}
+			
+			searchRadius = radius;
+			searchRadiusSquared = radius * radius;
+			this.getConfig().set("radius", radius);
+			this.saveConfig();
+
+			sender.sendMessage("Set QuickStack search radius to " + radius + ".");
+			
+			return true;
+		}
 
 		return false;
 	}
-
+	
+	// create default config, or read from existing
+	private void checkConfig()
+	{
+		if (!getDataFolder().exists())
+		{
+			getDataFolder().mkdirs();
+		}
+		
+		File config = new File(getDataFolder(), "config.yml");
+		
+		if (!config.exists())
+		{
+			getLogger().info("QuickStack config.yml not found, creating!");
+			saveDefaultConfig();
+		}
+		else
+		{
+			getLogger().info("QuickStack config.yml found, loading!");
+		}
+		
+	}
+	
 	private Chest[] getChests(Location pos)
 	{
 		ArrayList<Chest> locs = new ArrayList<Chest>(); // track nearby chests
@@ -67,7 +121,7 @@ public class Main extends JavaPlugin
 		int xAnchor = currentChunk.getX();
 		int zAnchor = currentChunk.getZ();
 		
-		int chunkRadius = SEARCH_DISTANCE / CHUNK_LENGTH + 1; // translate block search radius to chunks
+		int chunkRadius = searchRadius / CHUNK_LENGTH + 1; // translate block search radius to chunks
 		Set<Chunk> chunkList = new HashSet<Chunk>();
 		
 		// get chunks that could be within search radius
@@ -87,7 +141,7 @@ public class Main extends JavaPlugin
 			for (BlockState currentState : tileEnts)
 			{
 				// only save chests within search radius
-				if ((currentState.getType() == Material.CHEST) && (currentState.getLocation().distanceSquared(pos) <= SEARCH_DISTANCE_SQUARED))
+				if ((currentState.getType() == Material.CHEST) && (currentState.getLocation().distanceSquared(pos) <= searchRadiusSquared))
 				{
 					locs.add((Chest) currentState);
 				}
